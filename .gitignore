@@ -1,0 +1,29 @@
+# Build artifacts
+**/target/
+**/build/
+**/.DS_Store
+
+# Node artifacts
+apps/web/node_modules/
+apps/web/dist/
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Secrets
+*.pem
+*.key
+*.p12
+*.jks
+wordfleet-deployer.json
+.env
+.env.*
+
+# Logs
+*.log
+
+# Terraform/infra scratch
+.terraform/
+*.tfstate*

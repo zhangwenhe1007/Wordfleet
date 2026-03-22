@@ -1,0 +1,16 @@
+server:
+  port: ${SESSION_PORT:8090}
+
+spring:
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+wordfleet:
+  join-token-secret: ${JOIN_TOKEN_SECRET:dev-secret}
+  control-base-url: ${CONTROL_BASE_URL:http://localhost:8080}
+  session-callback-secret: ${SESSION_CALLBACK_SECRET:dev-callback-secret}
+  room-ttl-seconds: ${ROOM_TTL_SECONDS:900}
+  agones-sdk-enabled: ${AGONES_SDK_ENABLED:false}
+  agones-sdk-url: ${AGONES_SDK_URL:http://localhost:9358}

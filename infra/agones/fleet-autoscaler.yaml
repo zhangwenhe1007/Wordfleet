@@ -1,0 +1,13 @@
+apiVersion: autoscaling.agones.dev/v1
+kind: FleetAutoscaler
+metadata:
+  name: wordfleet-session-autoscaler
+  namespace: wordfleet
+spec:
+  fleetName: wordfleet-session
+  policy:
+    type: Buffer
+    buffer:
+      bufferSize: 5
+      minReplicas: 5
+      maxReplicas: 200

@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: control-plane-config
+  namespace: wordfleet
+data:
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  SESSION_WS_FALLBACK: ws://wordfleet-session.wordfleet.svc.cluster.local:8090/ws/room
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: control-plane-secrets
+  namespace: wordfleet
+type: Opaque
+stringData:
+  JOIN_TOKEN_SECRET: change-me
+  SESSION_CALLBACK_SECRET: change-me
+  SENDGRID_API_KEY: ""
+  MAGIC_LINK_FROM: no-reply@wordfleet.dev
+  MAGIC_LINK_BASE_URL: https://wordfleet-web.example.com/auth/verify
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: control-plane
+  namespace: wordfleet
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: control-plane
+  template:
+    metadata:
+      labels:
+        app: control-plane
+    spec:
+      containers:
+        - name: control-plane
+          image: us-central1-docker.pkg.dev/wordfleet-487310/wordfleet/control-plane:beta
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: control-plane-config
+            - secretRef:
+                name: control-plane-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 8
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 800m
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: control-plane
+  namespace: wordfleet
+spec:
+  selector:
+    app: control-plane
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: control-plane-hpa
+  namespace: wordfleet
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: control-plane
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

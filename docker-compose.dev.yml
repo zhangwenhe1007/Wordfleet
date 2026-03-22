@@ -1,0 +1,37 @@
+services:
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "6379:6379"
+
+  control-plane:
+    build:
+      context: ./services/control-plane
+    environment:
+      CONTROL_PORT: 8080
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JOIN_TOKEN_SECRET: dev-secret
+      SESSION_CALLBACK_SECRET: dev-callback-secret
+      SESSION_WS_FALLBACK: ws://localhost:8090/ws/room
+    ports:
+      - "8080:8080"
+    depends_on:
+      - redis
+
+  session-server:
+    build:
+      context: ./services/session-server
+    environment:
+      SESSION_PORT: 8090
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JOIN_TOKEN_SECRET: dev-secret
+      CONTROL_BASE_URL: http://control-plane:8080
+      SESSION_CALLBACK_SECRET: dev-callback-secret
+      AGONES_SDK_ENABLED: "false"
+    ports:
+      - "8090:8090"
+    depends_on:
+      - redis
+      - control-plane
