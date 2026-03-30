@@ -19,12 +19,12 @@ public class LeaderboardController {
     }
 
     @GetMapping("/daily")
-    public List<LeaderboardEntry> daily(@RequestParam(defaultValue = "50") int limit) {
+    public List<LeaderboardEntry> daily(@RequestParam(name = "limit", defaultValue = "50") int limit) {
         return leaderboardService.topDaily(limit);
     }
 
     @GetMapping("/alltime")
-    public List<LeaderboardEntry> alltime(@RequestParam(defaultValue = "50") int limit) {
+    public List<LeaderboardEntry> alltime(@RequestParam(name = "limit", defaultValue = "50") int limit) {
         return leaderboardService.topAllTime(limit);
     }
 }

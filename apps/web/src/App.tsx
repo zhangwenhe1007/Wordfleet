@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 type AuthState = {
   userId: string
@@ -20,14 +20,16 @@ type RoomStatePayload = {
   minPlayers: number
   maxPlayers: number
   players: string[]
+  playerNames: Record<string, string>
   alive: string[]
   scores: Record<string, number>
   lives: Record<string, number>
-  turnPlayerId: string
+  turnPlayerId: string | null
   substring: string
   turnEndsAt: number
   eventType: string
   tier: number
+  winnerUserId?: string | null
 }
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8080'
@@ -41,12 +43,30 @@ export default function App() {
   const [logs, setLogs] = useState<string[]>([])
   const [roomState, setRoomState] = useState<RoomStatePayload | null>(null)
   const [error, setError] = useState<string>('')
+  const [now, setNow] = useState(() => Date.now())
   const wsRef = useRef<WebSocket | null>(null)
+
+  useEffect(() => {
+    const timerId = window.setInterval(() => setNow(Date.now()), 200)
+    return () => window.clearInterval(timerId)
+  }, [])
 
   const isMyTurn = useMemo(() => {
     if (!auth || !roomState) return false
     return roomState.turnPlayerId === auth.userId
   }, [auth, roomState])
+
+  const playerLabel = (playerId: string) => roomState?.playerNames?.[playerId] ?? playerId
+
+  const turnCountdownSeconds = useMemo(() => {
+    if (!roomState || roomState.status !== 'ACTIVE' || !roomState.turnEndsAt) {
+      return null
+    }
+    return Math.max(0, (roomState.turnEndsAt - now) / 1000)
+  }, [now, roomState])
+
+  const turnTimerLabel = turnCountdownSeconds === null ? 'Waiting' : `${turnCountdownSeconds.toFixed(1)}s`
+  const turnPlayerLabel = roomState?.turnPlayerId ? playerLabel(roomState.turnPlayerId) : 'N/A'
 
   async function authGuest() {
     setError('')
@@ -137,6 +157,34 @@ export default function App() {
     setWord('')
   }
 
+  function handleWordSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    submitWord()
+  }
+
+  function startNewGame() {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || roomState?.status !== 'ENDED') {
+      return
+    }
+    wsRef.current.send(JSON.stringify({ type: 'START_NEW_GAME', payload: {} }))
+  }
+
+  function playerMatchStatus(playerId: string) {
+    if (!roomState) {
+      return 'Waiting'
+    }
+
+    if (roomState.status === 'ENDED') {
+      return roomState.winnerUserId === playerId ? 'Winner' : 'Eliminated'
+    }
+
+    if (roomState.turnPlayerId === playerId && roomState.status === 'ACTIVE') {
+      return `Now • ${turnTimerLabel}`
+    }
+
+    return roomState.alive.includes(playerId) ? 'Waiting' : 'Eliminated'
+  }
+
   return (
     <main className="app-shell">
       <section className="panel hero">
@@ -183,40 +231,62 @@ export default function App() {
             <h2>Gameplay</h2>
             <div className="stats">
               <div>Status: {roomState?.status ?? 'N/A'}</div>
-              <div>Turn: {roomState?.turnPlayerId ?? 'N/A'}</div>
+              <div>Turn: {turnPlayerLabel}</div>
+              <div>Timer: {turnTimerLabel}</div>
               <div>Substring: {roomState?.substring ?? 'N/A'}</div>
               <div>Event: {roomState?.eventType ?? 'NONE'}</div>
             </div>
 
-            <div className="row">
+            <form className="row submit-row" onSubmit={handleWordSubmit}>
               <input
                 value={word}
                 placeholder={isMyTurn ? 'Your word' : 'Wait for your turn'}
                 onChange={e => setWord(e.target.value)}
                 disabled={!isMyTurn}
               />
-              <button onClick={submitWord} disabled={!isMyTurn}>Submit</button>
-            </div>
+              <button type="submit" disabled={!isMyTurn}>Submit</button>
+            </form>
 
             {roomState && (
-              <table>
-                <thead>
-                  <tr>
-                    <th>Player</th>
-                    <th>Score</th>
-                    <th>Lives</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {roomState.players.map(playerId => (
-                    <tr key={playerId}>
-                      <td>{playerId}</td>
-                      <td>{roomState.scores[playerId] ?? 0}</td>
-                      <td>{roomState.lives[playerId] ?? 0}</td>
+              <>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Player</th>
+                      <th>Score</th>
+                      <th>Lives</th>
+                      <th>Turn</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {roomState.players.map(playerId => (
+                      <tr
+                        key={playerId}
+                        className={
+                          roomState.status === 'ENDED'
+                            ? roomState.winnerUserId === playerId
+                              ? 'current-turn'
+                              : undefined
+                            : roomState.turnPlayerId === playerId
+                              ? 'current-turn'
+                              : undefined
+                        }
+                      >
+                        <td>{playerLabel(playerId)}</td>
+                        <td>{roomState.scores[playerId] ?? 0}</td>
+                        <td>{roomState.lives[playerId] ?? 0}</td>
+                        <td>{playerMatchStatus(playerId)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {roomState.status === 'ENDED' && (
+                  <div className="row post-game-actions">
+                    <button onClick={startNewGame}>New Game</button>
+                  </div>
+                )}
+              </>
             )}
           </section>
 

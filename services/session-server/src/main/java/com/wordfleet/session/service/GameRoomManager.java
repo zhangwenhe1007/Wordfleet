@@ -6,6 +6,7 @@ import com.wordfleet.session.game.DictionaryService;
 import com.wordfleet.session.game.GameEventType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.TextMessage;
@@ -19,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 @Service
 public class GameRoomManager {
@@ -28,17 +30,20 @@ public class GameRoomManager {
     private final RedisRoomStateRepository redisRoomStateRepository;
     private final ControlPlaneCallbackClient callbackClient;
     private final WordfleetSessionProperties props;
+    private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ConcurrentHashMap<String, RoomContext> rooms = new ConcurrentHashMap<>();
 
     public GameRoomManager(DictionaryService dictionaryService,
                            RedisRoomStateRepository redisRoomStateRepository,
                            ControlPlaneCallbackClient callbackClient,
-                           WordfleetSessionProperties props) {
+                           WordfleetSessionProperties props,
+                           StringRedisTemplate redis) {
         this.dictionaryService = dictionaryService;
         this.redisRoomStateRepository = redisRoomStateRepository;
         this.callbackClient = callbackClient;
         this.props = props;
+        this.redis = redis;
     }
 
     public void connect(String roomId, String userId, WebSocketSession session) {
@@ -52,6 +57,8 @@ public class GameRoomManager {
                 room.scores.put(userId, 0);
                 room.streaks.put(userId, 0);
             }
+            room.playerNames.put(userId, resolveDisplayName(userId));
+            populatePlayerNames(room);
 
             sendToUser(session, envelope("ROOM_STATE", statePayload(room)));
 
@@ -62,7 +69,10 @@ public class GameRoomManager {
                 room.turnIndex = -1;
                 startNextTurnLocked(room, System.currentTimeMillis());
             } else {
-                broadcast(room, envelope("PLAYER_JOINED", Map.of("userId", userId, "players", room.playerOrder.size())));
+                broadcast(room, envelope("PLAYER_JOINED", Map.of(
+                        "userId", userId,
+                        "displayName", room.playerNames.getOrDefault(userId, userId),
+                        "players", room.playerOrder.size())));
                 broadcast(room, envelope("ROOM_STATE", statePayload(room)));
             }
 
@@ -147,12 +157,10 @@ public class GameRoomManager {
 
             int streak = room.streaks.getOrDefault(userId, 0) + 1;
             room.streaks.put(userId, streak);
-            int points = calculatePoints(word.length(), room.tier, streak);
-            if (room.eventType == GameEventType.DOUBLE_POINTS) {
-                points = points * 2;
-            }
+            int basePoints = calculatePoints(word.length(), room.tier, streak);
+            int awardedPoints = room.eventType == GameEventType.DOUBLE_POINTS ? basePoints * 2 : basePoints;
 
-            room.scores.compute(userId, (k, v) -> (v == null ? 0 : v) + points);
+            room.scores.compute(userId, (k, v) -> (v == null ? 0 : v) + awardedPoints);
             room.bannedWords.add(word);
             room.recentSolveMillis.addLast(Math.max(0, now - room.turnStartedAtMillis));
             trimDeque(room.recentSolveMillis, 5);
@@ -162,10 +170,38 @@ public class GameRoomManager {
             broadcast(room, envelope("WORD_ACCEPTED", Map.of(
                     "userId", userId,
                     "word", word,
-                    "points", points,
+                    "points", awardedPoints,
                     "newScore", room.scores.getOrDefault(userId, 0))));
 
             startNextTurnLocked(room, now);
+            persist(room);
+        }
+    }
+
+    public void startNewGame(String roomId, String userId) {
+        RoomContext room = rooms.get(roomId);
+        if (room == null) {
+            return;
+        }
+
+        synchronized (room) {
+            if (!"ENDED".equals(room.status)) {
+                broadcastToUser(room, userId, envelope("ERROR", Map.of("message", "New game is only available after a match ends")));
+                return;
+            }
+
+            resetRoomLocked(room);
+            broadcast(room, envelope("NEW_GAME_STARTED", Map.of("roomId", room.roomId, "players", room.playerOrder.size())));
+
+            if (room.playerOrder.size() >= room.minPlayers) {
+                room.status = "ACTIVE";
+                room.startedAtEpochMillis = System.currentTimeMillis();
+                room.turnIndex = -1;
+                startNextTurnLocked(room, room.startedAtEpochMillis);
+            } else {
+                broadcast(room, envelope("ROOM_STATE", statePayload(room)));
+            }
+
             persist(room);
         }
     }
@@ -374,12 +410,14 @@ public class GameRoomManager {
     }
 
     private Map<String, Object> statePayload(RoomContext room) {
+        populatePlayerNames(room);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("roomId", room.roomId);
         payload.put("status", room.status);
         payload.put("minPlayers", room.minPlayers);
         payload.put("maxPlayers", room.maxPlayers);
         payload.put("players", new ArrayList<>(room.playerOrder));
+        payload.put("playerNames", new HashMap<>(room.playerNames));
         payload.put("alive", new ArrayList<>(room.alive));
         payload.put("scores", new HashMap<>(room.scores));
         payload.put("lives", new HashMap<>(room.lives));
@@ -388,6 +426,7 @@ public class GameRoomManager {
         payload.put("turnEndsAt", room.turnEndsAtMillis);
         payload.put("eventType", room.eventType.name());
         payload.put("tier", room.tier);
+        payload.put("winnerUserId", room.winnerUserId);
         return payload;
     }
 
@@ -436,6 +475,64 @@ public class GameRoomManager {
             log.warn("Unable to serialize websocket message: {}", ex.getMessage());
             return null;
         }
+    }
+
+    private void populatePlayerNames(RoomContext room) {
+        for (String playerId : room.playerOrder) {
+            room.playerNames.compute(playerId, (id, existingName) -> {
+                if (existingName != null && !existingName.isBlank() && !existingName.equals(id)) {
+                    return existingName;
+                }
+                return resolveDisplayName(id);
+            });
+        }
+    }
+
+    private void resetRoomLocked(RoomContext room) {
+        List<String> connectedPlayers = room.orderedPlayers().stream()
+                .filter(room.sessions::containsKey)
+                .collect(Collectors.toList());
+
+        room.playerOrder.clear();
+        room.playerOrder.addAll(connectedPlayers);
+        room.alive.clear();
+        room.alive.addAll(connectedPlayers);
+
+        room.lives.clear();
+        room.scores.clear();
+        room.streaks.clear();
+        for (String playerId : connectedPlayers) {
+            room.lives.put(playerId, 3);
+            room.scores.put(playerId, 0);
+            room.streaks.put(playerId, 0);
+        }
+
+        room.bannedWords.clear();
+        room.lockoutUntilMillis.clear();
+        room.shieldedUsers.clear();
+        room.recentSolveMillis.clear();
+        room.recentTimeouts.clear();
+
+        room.status = "WAITING";
+        room.tier = 1;
+        room.turnIndex = 0;
+        room.turnCounter = 0;
+        room.turnPlayerId = null;
+        room.substring = "";
+        room.turnStartedAtMillis = 0;
+        room.turnEndsAtMillis = 0;
+        room.eventType = GameEventType.NONE;
+        room.startedAtEpochMillis = 0;
+        room.endedAtEpochMillis = 0;
+        room.winnerUserId = null;
+    }
+
+    private String resolveDisplayName(String userId) {
+        String displayName = redis.opsForValue().get("user:" + userId + ":name");
+        if (displayName == null || displayName.isBlank()) {
+            return userId;
+        }
+        return displayName;
     }
 
     private void persist(RoomContext room) {

@@ -35,13 +35,13 @@ public class RoomController {
 
     @PostMapping("/{roomId}/join")
     public JoinRoomResponse joinRoom(@RequestHeader("Authorization") String authHeader,
-                                     @PathVariable String roomId) {
+                                     @PathVariable("roomId") String roomId) {
         String userId = identityService.requireUserId(authHeader);
         return roomService.joinRoom(roomId, userId);
     }
 
     @GetMapping("/{roomId}")
-    public RoomView getRoom(@PathVariable String roomId) {
+    public RoomView getRoom(@PathVariable("roomId") String roomId) {
         return roomService.getRoom(roomId);
     }
 }

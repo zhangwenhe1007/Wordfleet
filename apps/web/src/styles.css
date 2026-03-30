@@ -19,6 +19,7 @@ body {
   font-family: 'Space Grotesk', sans-serif;
   color: var(--text);
   background: radial-gradient(circle at 15% 10%, #2b6f98 0%, var(--bg-a) 40%, #07101c 100%);
+  overflow-x: hidden;
 }
 
 .app-shell {
@@ -35,6 +36,7 @@ body {
   border-radius: 14px;
   padding: 16px;
   backdrop-filter: blur(6px);
+  min-width: 0;
 }
 
 .hero h1 {
@@ -63,6 +65,7 @@ button {
 input {
   flex: 1;
   min-width: 180px;
+  width: 100%;
   padding: 10px 12px;
   background: rgba(255, 255, 255, 0.1);
   color: var(--text);
@@ -88,9 +91,27 @@ button:disabled {
   margin-bottom: 10px;
 }
 
+.stats > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.submit-row {
+  align-items: stretch;
+}
+
+.submit-row input {
+  min-width: 0;
+}
+
+.submit-row button {
+  flex: 0 0 auto;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
 th,
@@ -98,6 +119,18 @@ td {
   border-bottom: 1px solid var(--border);
   padding: 8px;
   text-align: left;
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+
+.current-turn td {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.post-game-actions {
+  margin-top: 12px;
+  justify-content: flex-end;
 }
 
 .logs pre {
@@ -106,6 +139,10 @@ td {
   overflow: auto;
   font-size: 12px;
   line-height: 1.4;
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .error {
@@ -120,5 +157,13 @@ td {
 
   .panel {
     padding: 12px;
+  }
+
+  .submit-row {
+    flex-direction: column;
+  }
+
+  .submit-row button {
+    width: 100%;
   }
 }

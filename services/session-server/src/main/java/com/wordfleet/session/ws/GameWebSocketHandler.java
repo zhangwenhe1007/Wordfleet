@@ -53,6 +53,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                     String word = root.path("payload").path("word").asText("");
                     roomManager.submitWord(roomId, userId, word);
                 }
+                case "START_NEW_GAME" -> roomManager.startNewGame(roomId, userId);
                 case "PING" -> session.sendMessage(new TextMessage(mapper.writeValueAsString(
                         Map.of("type", "PONG", "payload", Map.of("ts", System.currentTimeMillis())))));
                 default -> session.sendMessage(new TextMessage(mapper.writeValueAsString(

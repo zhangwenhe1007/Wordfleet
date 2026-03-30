@@ -22,14 +22,14 @@ public class MatchController {
     }
 
     @PostMapping("/{roomId}/complete")
-    public MatchSummaryView complete(@PathVariable String roomId,
+    public MatchSummaryView complete(@PathVariable("roomId") String roomId,
                                      @RequestHeader("X-Session-Signature") String signature,
                                      @Valid @RequestBody MatchSummaryRequest request) {
         return matchService.complete(roomId, request, signature);
     }
 
     @GetMapping("/{roomId}")
-    public MatchSummaryView byRoom(@PathVariable String roomId) {
+    public MatchSummaryView byRoom(@PathVariable("roomId") String roomId) {
         return matchService.findByRoomId(roomId);
     }
 }

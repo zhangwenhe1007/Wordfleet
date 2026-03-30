@@ -18,6 +18,7 @@ class RoomContext {
     final String roomId;
     final LinkedHashSet<String> playerOrder = new LinkedHashSet<>();
     final Set<String> alive = new HashSet<>();
+    final Map<String, String> playerNames = new HashMap<>();
     final Map<String, Integer> lives = new HashMap<>();
     final Map<String, Integer> scores = new HashMap<>();
     final Map<String, Integer> streaks = new HashMap<>();
